@@ -1,0 +1,10 @@
+# Film, sottotitoli generati e log: file pesanti o con diritti d'autore, non vanno nella repo
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.srt
+*.log
+
+__pycache__/
+.pytest_cache/

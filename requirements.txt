@@ -1,0 +1,7 @@
+faster-whisper
+transformers
+sentencepiece
+torch
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
+pytest
