@@ -185,19 +185,27 @@ def split_text(text: str, weights):
         if k < len(weights) - 1:  # il taglio scatta su una virgola/punto vicino (±2 parole), se c'è
             near = [j for j in range(max(prev + 1, end - 2), min(len(words), end + 2) + 1) if words[j - 1][-1] in ",.;:?!"]
             end = min(near, key=lambda j: abs(j - end)) if near else end
+        if len(words) >= len(weights):  # abbastanza parole: ogni riga ne riceve almeno una (niente righe vuote)
+            end = min(max(end, prev + 1), len(words) - (len(weights) - 1 - k))
         out.append(" ".join(words[prev:end]))
         prev = end
     return out
 
 
-def translate_sentences(segs, fn):
+def translate_sentences(segs, fn, split=None):
     """Traduce frasi intere con `fn` (lista di testi -> lista di traduzioni), poi rimette il testo sui tempi originali.
 
     Frasi intere e non righe: più contesto e, con l'LLM, niente righe sfasate quando una frase è spezzata su più righe.
     """
     groups = group_sentences(segs)
     tr = fn([" ".join(x[2] for x in g) for g in groups])
-    return [p for g, t in zip(groups, tr) for p in split_text(t, [len(x[2]) for x in g])]
+    out = []
+    for n, (g, t) in enumerate(zip(groups, tr), 1):
+        # `split` (LLM) allinea ai tempi per significato; se non c'è o fallisce, taglio proporzionale
+        out += (split(g, t) if split and len(g) > 1 else None) or split_text(t, [len(x[2]) for x in g])
+        if split and n % 100 == 0:
+            print(f"  allineamento {n}/{len(groups)}", file=sys.stderr)
+    return out
 
 
 def mux(video: Path, srts: dict, out: Path) -> None:
@@ -265,7 +273,8 @@ def main() -> None:
         p = Path(f"{stem}.{code}.srt")
         if not p.exists():  # già tradotta in un run precedente
             fn = (lambda t: tl.translate(cfg, t, LLM_LANG[code])) if use_llm else (lambda t: translate(t, nllb, a.nllb, device))
-            write_srt(p, segs, translate_sentences(segs, fn))
+            split = (lambda g, t: tl.split_lines(cfg, [x[2] for x in g], t, LLM_LANG[code])) if use_llm else None
+            write_srt(p, segs, translate_sentences(segs, fn, split))
         srts[iso] = p
     if not a.no_mux:
         out = a.out or Path(f"{stem}.subs.mkv")

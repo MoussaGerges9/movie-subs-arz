@@ -25,6 +25,17 @@ def test_group_sentences_and_split_text():
     assert split_text("one two three", [1, 1, 1]) == ["one", "two", "three"]
     assert split_text("hi", [1, 1]) == ["", "hi"]  # meno parole che pezzi: nessun crash
     assert split_text("a b c, d e f", [2, 4]) == ["a b c,", "d e f"]  # il taglio si sposta sulla virgola vicina
+    assert split_text("a b c d", [10, 1, 1]) == ["a b", "c", "d"]  # abbastanza parole: nessuna riga vuota
+
+
+def test_split_lines_accepts_only_unaltered_words(monkeypatch):
+    import translate_llm as tl
+
+    cfg = dict(url="", model="", schema=True)
+    reply = lambda *a, **k: '{"t": [{"id": 1, "t": "Sell"}, {"id": 2, "t": "them to me."}]}'
+    monkeypatch.setattr(tl, "chat", reply)
+    assert tl.split_lines(cfg, ["بيع", "ليهم"], "Sell them to me.", "English") == ["Sell", "them to me."]
+    assert tl.split_lines(cfg, ["بيع", "ليهم"], "Sell them to you.", "English") is None  # parole cambiate: ripiego
 
 
 def test_chunk_words_splits_on_punct_gap_and_duration():

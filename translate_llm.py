@@ -56,6 +56,39 @@ def parse(txt, n):
     return None
 
 
+def schema_for(n):
+    """JSON schema: esattamente n oggetti {id, t}."""
+    item = {"type": "object", "properties": {"id": {"type": "integer"}, "t": {"type": "string"}},
+            "required": ["id", "t"], "additionalProperties": False}
+    return {"type": "object", "properties": {"t": {"type": "array", "items": item, "minItems": n, "maxItems": n}},
+            "required": ["t"], "additionalProperties": False}
+
+
+def split_lines(cfg, src_lines, text, lang):
+    """Divide `text` (traduzione di una frase intera) in len(src_lines) pezzi, uno per riga sorgente, in base a cosa dice
+    ogni riga. Restituisce None se il modello cambia/perde/aggiunge parole: il chiamante usa un taglio proporzionale."""
+    k = len(src_lines)
+    system = "You are a film subtitler. You align a translated sentence to the timing of the original subtitle lines."
+    u = ("Arabic subtitle lines:\n" + "\n".join("%d| %s" % (i + 1, x) for i, x in enumerate(src_lines))
+         + "\n\n%s translation of the whole passage:\n%s\n\n" % (lang, text)
+         + "Split the translation into exactly %d consecutive pieces, piece i being the part that line i says. " % k
+         + "Keep the words and their order exactly: no rewording, nothing added or removed. "
+         + "A piece may be empty only if its line has no counterpart. "
+         + "Reply JSON {\"t\": [{\"id\": 1, \"t\": \"piece 1\"}, ...]}, ids 1..%d." % k)
+    try:
+        out = chat(cfg["url"], cfg["model"], system, u, schema_for(k) if cfg["schema"] else None, 0.1, 40 * len(text.split()) + 200)
+    except Exception as e:
+        print("  errore HTTP:", e, file=sys.stderr)
+        return None
+    pieces = parse(out, k)
+    if not pieces or " ".join(pieces).split() != text.split():
+        return None
+    # provato: il modello mette quasi tutta la frase nel primo pezzo e lascia vuoti gli altri; se le parole bastano, è un rifiuto
+    if len(text.split()) >= k and not all(pieces):
+        return None
+    return pieces
+
+
 def block(cfg, src_lines, before, after, lang, src_lang, stats):
     n = len(src_lines)
     system = SYS.format(lang=lang, title=cfg["title"], names=(" Known names: %s." % cfg["names"]) if cfg["names"] else "")
@@ -66,10 +99,7 @@ def block(cfg, src_lines, before, after, lang, src_lang, stats):
     u += "Translate these %d lines into %s. Reply JSON {\"t\": [{\"id\": 1, \"t\": \"translation of line 1\"}, ...]}, one object per line, ids 1..%d.\n" % (n, lang, n)
     u += "\n".join("%d| %s" % (i + 1, x) for i, x in enumerate(src_lines))
     if after: u += "\n\nContext after (do not translate):\n" + "\n".join("- " + x for x in after)
-    item = {"type": "object", "properties": {"id": {"type": "integer"}, "t": {"type": "string"}},
-            "required": ["id", "t"], "additionalProperties": False}
-    schema = {"type": "object", "properties": {"t": {"type": "array", "items": item, "minItems": n, "maxItems": n}},
-              "required": ["t"], "additionalProperties": False} if cfg["schema"] else None
+    schema = schema_for(n) if cfg["schema"] else None
     for attempt in range(2):
         t0 = time.time()
         try:
