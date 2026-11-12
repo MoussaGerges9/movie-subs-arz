@@ -34,6 +34,19 @@ LANGS = {  # codice -> (ISO 639-2 per ffmpeg, codice NLLB)
 }
 
 
+LLM_LANG = {"en": "English", "it": "Italian"}
+
+
+def llm_up(url: str) -> bool:
+    import urllib.request
+
+    try:
+        urllib.request.urlopen(url + "/models", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
 def ts(sec: float) -> str:
     ms = round(sec * 1000)
     h, ms = divmod(ms, 3_600_000)
@@ -85,7 +98,17 @@ def chunk_words(words, max_dur=5.0, max_chars=70, max_gap=0.8):
     return out
 
 
-def transcribe(video: Path, model_name: str, device: str):
+def drop_loops(segs, keep=2):
+    """Whisper a volte ripete la stessa riga all'infinito: tiene al massimo `keep` ripetizioni consecutive."""
+    out = []
+    for s in segs:
+        if len(out) >= keep and all(o[2] == s[2] for o in out[-keep:]):
+            continue
+        out.append(s)
+    return out
+
+
+def transcribe(video: Path, model_name: str, device: str, names: str = ""):
     from faster_whisper import WhisperModel
 
     model = WhisperModel(model_name, device=device, compute_type="int8_float16" if device == "cuda" else "int8")
@@ -93,7 +116,13 @@ def transcribe(video: Path, model_name: str, device: str):
         str(video),
         language="ar",
         beam_size=5,
-        vad_filter=True,  # taglia musica/silenzi: meno allucinazioni
+        vad_filter=True,
+        # il VAD di default (soglia 0.5) scartava parlato vero (misurato su 3 min di film): soglia più bassa
+        vad_parameters=dict(threshold=0.35, min_silence_duration_ms=1000),
+        # prompt in dialetto (parole colloquiali) + nomi: più parole riconosciute. NON usare frasi in arabo
+        # formale: Whisper passerebbe all'arabo standard e perderebbe il dialetto (provato)
+        initial_prompt="حوار بالعامية المصرية من فيلم: ازيك يا عم، ايه ده، يا ابني، دلوقتي، عايز، كده، اوي، مش، ده، دي، يا باشا، يا حاج، هو انت شايف. "
+        + (f"الأسماء: {names}" if names else ""),
         condition_on_previous_text=False,  # evita loop di ripetizioni sui film lunghi
         word_timestamps=True,  # servono per spezzare i discorsi lunghi in sottotitoli brevi
     )
@@ -103,7 +132,7 @@ def transcribe(video: Path, model_name: str, device: str):
         segs += chunk_words(words) if words else [(s.start, s.end, s.text.strip())]
         print(f"\r  trascrizione {s.end / info.duration:6.1%}", end="", file=sys.stderr, flush=True)
     print(file=sys.stderr)
-    return segs
+    return drop_loops(segs)
 
 
 @functools.lru_cache(maxsize=1)  # ricaricare nello stesso processo rompe il client di huggingface_hub
@@ -150,18 +179,24 @@ def group_sentences(segs, max_chars=250, max_gap=1.5):
 def split_text(text: str, weights):
     """Divide `text` per parole in len(weights) pezzi, proporzionali ai pesi (lunghezza dell'arabo di ogni pezzo)."""
     words, total, out, prev, cum = text.split(), sum(weights), [], 0, 0
-    for w in weights:
+    for k, w in enumerate(weights):
         cum += w
         end = round(len(words) * cum / total)
+        if k < len(weights) - 1:  # il taglio scatta su una virgola/punto vicino (±2 parole), se c'è
+            near = [j for j in range(max(prev + 1, end - 2), min(len(words), end + 2) + 1) if words[j - 1][-1] in ",.;:?!"]
+            end = min(near, key=lambda j: abs(j - end)) if near else end
         out.append(" ".join(words[prev:end]))
         prev = end
     return out
 
 
-def translate_sentences(segs, tgt: str, model_name: str, device: str):
-    """Traduce frasi intere (più contesto = traduzione migliore), poi rimette il testo sui tempi originali."""
+def translate_sentences(segs, fn):
+    """Traduce frasi intere con `fn` (lista di testi -> lista di traduzioni), poi rimette il testo sui tempi originali.
+
+    Frasi intere e non righe: più contesto e, con l'LLM, niente righe sfasate quando una frase è spezzata su più righe.
+    """
     groups = group_sentences(segs)
-    tr = translate([" ".join(x[2] for x in g) for g in groups], tgt, model_name, device)
+    tr = fn([" ".join(x[2] for x in g) for g in groups])
     return [p for g, t in zip(groups, tr) for p in split_text(t, [len(x[2]) for x in g])]
 
 
@@ -186,9 +221,22 @@ def main() -> None:
     ap.add_argument("--whisper", default="large-v3", help="modello faster-whisper (es. medium con poca VRAM)")
     ap.add_argument("--nllb", default="facebook/nllb-200-distilled-1.3B", help="modello NLLB (distilled-600M con poca VRAM)")
     ap.add_argument("--no-mux", action="store_true", help="genera solo i file .srt")
+    ap.add_argument("--translator", choices=["auto", "llm", "nllb"], default="auto",
+                    help="llm = LLM locale via server OpenAI-compatibile (migliore); nllb = NLLB (nessun server); auto = llm se il server risponde")
+    ap.add_argument("--llm-url", default="http://localhost:1234/v1", help="server OpenAI-compatibile (llama-server, LM Studio, Ollama)")
+    ap.add_argument("--llm-model", default="local", help="nome del modello sul server")
+    ap.add_argument("--names", default="", help='nomi dei personaggi, in arabo e/o latino (es. "نيسا، زيزي / Nisa, Zizi")')
+    ap.add_argument("--title", default="an Egyptian Arabic feature film", help="titolo/genere del film, dato come contesto all'LLM")
+    ap.add_argument("--transcribe-only", action="store_true",
+                    help="solo trascrizione araba: libera la GPU prima di avviare il server LLM (con 6 GB non stanno insieme)")
     a = ap.parse_args()
     if not a.video.is_file():
         sys.exit(f"file non trovato: {a.video}")
+    up = llm_up(a.llm_url) if a.translator != "nllb" else False
+    if a.translator == "llm" and not up and not a.transcribe_only:
+        sys.exit(f"nessun server LLM su {a.llm_url}: avvialo oppure usa --translator nllb")
+    use_llm = up
+    print(f"traduttore: {'LLM ' + a.llm_url if use_llm else 'NLLB ' + a.nllb}", file=sys.stderr)
 
     import ctranslate2
 
@@ -201,14 +249,23 @@ def main() -> None:
         print(f"uso trascrizione esistente: {ar_srt.name}", file=sys.stderr)
         segs = parse_srt(ar_srt)
     else:
-        segs = transcribe(a.video, a.whisper, device)
+        segs = transcribe(a.video, a.whisper, device, a.names)
         write_srt(ar_srt, segs, [t for _, _, t in segs])
+    if a.transcribe_only:
+        return
+
+    if use_llm:
+        import translate_llm as tl
+
+        cfg = dict(url=a.llm_url, model=a.llm_model, block=8, ctx=3, title=a.title, names=a.names,
+                   schema=True, stats=tl.new_stats())
 
     srts = {"ara": ar_srt}
     for code, (iso, nllb) in LANGS.items():
         p = Path(f"{stem}.{code}.srt")
         if not p.exists():  # già tradotta in un run precedente
-            write_srt(p, segs, translate_sentences(segs, nllb, a.nllb, device))
+            fn = (lambda t: tl.translate(cfg, t, LLM_LANG[code])) if use_llm else (lambda t: translate(t, nllb, a.nllb, device))
+            write_srt(p, segs, translate_sentences(segs, fn))
         srts[iso] = p
     if not a.no_mux:
         out = a.out or Path(f"{stem}.subs.mkv")

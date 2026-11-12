@@ -1,7 +1,21 @@
 import tempfile
 from pathlib import Path
 
-from movie_subs import chunk_words, group_sentences, parse_srt, split_text, ts, write_srt
+from movie_subs import chunk_words, drop_loops, group_sentences, parse_srt, split_text, ts, write_srt
+from translate_llm import parse
+
+
+def test_drop_loops_keeps_at_most_two_repeats():
+    segs = [(i, i + 1, "x") for i in range(5)] + [(5, 6, "y")]
+    assert [t for _, _, t in drop_loops(segs)] == ["x", "x", "y"]
+
+
+def test_parse_llm_output_requires_exact_count():
+    assert parse('{"t": ["a", "b\\nc"]}', 2) == ["a", "b c"]  # niente newline dentro una riga
+    assert parse("1| a\n2| b", 2) == ["a", "b"]
+    assert parse('{"t": ["a"]}', 2) is None
+    assert parse('{"t": [{"id": 2, "t": "b"}, {"id": 1, "t": "a"}]}', 2) == ["a", "b"]  # riordina per id
+    assert parse('{"t": [{"id": 1, "t": "a"}, {"id": 1, "t": "b"}]}', 2) is None  # id duplicati = riga persa
 
 
 def test_group_sentences_and_split_text():
@@ -10,6 +24,7 @@ def test_group_sentences_and_split_text():
     assert split_text("one two three four", [2, 2]) == ["one two", "three four"]
     assert split_text("one two three", [1, 1, 1]) == ["one", "two", "three"]
     assert split_text("hi", [1, 1]) == ["", "hi"]  # meno parole che pezzi: nessun crash
+    assert split_text("a b c, d e f", [2, 4]) == ["a b c,", "d e f"]  # il taglio si sposta sulla virgola vicina
 
 
 def test_chunk_words_splits_on_punct_gap_and_duration():
