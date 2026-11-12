@@ -1,102 +1,102 @@
 # movie-subs-arz
 
-Genera sottotitoli **inglesi e italiani** per un film in **arabo egiziano** e li incorpora nel video.
-Tutto gira **in locale e gratis**: nessuna API key, nessun upload del film.
+Generate **English and Italian subtitles** for a movie in **Egyptian Arabic** and embed them in the video.
+Everything runs **locally and for free**: no API keys, and the movie is never uploaded anywhere.
 
 ```bash
-python movie_subs.py film.mkv
+python movie_subs.py movie.mkv
 ```
 
-Risultato: `film.ar.srt`, `film.en.srt`, `film.it.srt` e `film.subs.mkv` (video originale + 3 tracce sottotitoli selezionabili dal player).
+Output: `movie.ar.srt`, `movie.en.srt`, `movie.it.srt` and `movie.subs.mkv` (the original video plus three subtitle tracks you can switch between in your player).
 
-## Come funziona
+## How it works
 
-| Fase | Strumento | Cosa fa |
-|------|-----------|---------|
-| 1. Trascrizione | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) `large-v3`, lingua `ar` | Ascolta l'audio e produce testo arabo con il tempo di ogni parola |
-| 2. Sottotitoli brevi | `chunk_words` | Spezza il parlato in righe di max ~5 s / 70 caratteri, a pause e fine frase |
-| 3. Traduzione | [NLLB-200](https://huggingface.co/facebook/nllb-200-distilled-1.3B), sorgente `arz_Arab` (arabo egiziano) | Traduce **frasi intere** (più contesto = traduzione migliore) |
-| 4. Allineamento | `split_text` | Rimette il testo tradotto sui tempi originali, proporzionalmente alla lunghezza delle righe arabe |
-| 5. Incorporamento | `ffmpeg` | Aggiunge le tracce `ara`, `eng`, `ita` senza ricodificare video e audio |
+| Step | Tool | What it does |
+|------|------|--------------|
+| 1. Transcription | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) `large-v3`, language `ar` | Listens to the audio and produces Arabic text with a timestamp for every word |
+| 2. Short subtitles | `chunk_words` | Splits speech into lines of at most ~5 s / 70 characters, at pauses and sentence ends |
+| 3. Translation | [NLLB-200](https://huggingface.co/facebook/nllb-200-distilled-1.3B), source `arz_Arab` (Egyptian Arabic) | Translates **whole sentences** (more context gives a better translation) |
+| 4. Re-alignment | `split_text` | Puts the translated text back onto the original timings, proportionally to the length of each Arabic line |
+| 5. Embedding | `ffmpeg` | Adds the `ara`, `eng` and `ita` tracks without re-encoding video or audio |
 
-## Requisiti
+## Requirements
 
 - **Python 3.10+**
-- **ffmpeg** nel `PATH` (Windows: `winget install Gyan.FFmpeg`)
-- **GPU NVIDIA consigliata** (testato su RTX 4050 6 GB). Senza GPU funziona su CPU, molto più lentamente.
-- **Spazio disco: almeno 15 GB liberi.** Modelli ~8 GB (Whisper ~3 GB + NLLB ~5 GB) più torch.
-- Connessione internet solo per scaricare i modelli la prima volta.
+- **ffmpeg** on your `PATH` (Windows: `winget install Gyan.FFmpeg`)
+- **An NVIDIA GPU is recommended** (tested on an RTX 4050 with 6 GB). It also runs on CPU, much more slowly.
+- **At least 15 GB of free disk space.** Models take ~8 GB (Whisper ~3 GB + NLLB ~5 GB), plus torch.
+- An internet connection, only to download the models the first time.
 
-## Installazione
+## Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Per usare la GPU, installa torch con CUDA (il pacchetto di default su Windows è solo CPU):
+To use the GPU, install torch with CUDA (the default Windows package is CPU-only):
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu128
 ```
 
-`requirements.txt` include anche `nvidia-cublas-cu12` e `nvidia-cudnn-cu12`: sono le librerie CUDA che faster-whisper richiede. Su Windows lo script le rende visibili automaticamente.
+`requirements.txt` also includes `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, the CUDA libraries faster-whisper needs. On Windows the script makes them visible automatically.
 
-## Uso
+## Usage
 
 ```bash
-python movie_subs.py film.mkv                      # tutto: .srt + film.subs.mkv
-python movie_subs.py film.mp4 -o film.subs.mp4     # output mp4 (sottotitoli mov_text)
-python movie_subs.py film.mkv --no-mux             # solo i file .srt
-python movie_subs.py film.mkv --whisper medium --nllb facebook/nllb-200-distilled-600M   # poca VRAM
+python movie_subs.py movie.mkv                      # everything: .srt files + movie.subs.mkv
+python movie_subs.py movie.mp4 -o movie.subs.mp4    # mp4 output (mov_text subtitles)
+python movie_subs.py movie.mkv --no-mux             # only the .srt files
+python movie_subs.py movie.mkv --whisper medium --nllb facebook/nllb-200-distilled-600M   # low VRAM
 ```
 
-| Opzione | Default | Descrizione |
-|---------|---------|-------------|
-| `-o`, `--out` | `<film>.subs.mkv` | Video di output. L'estensione `.mp4`/`.mov` usa il codec `mov_text`, altrimenti `srt` |
-| `--whisper` | `large-v3` | Modello faster-whisper (`medium`, `small` per meno VRAM) |
-| `--nllb` | `facebook/nllb-200-distilled-1.3B` | Modello di traduzione (`...-distilled-600M` per meno VRAM) |
-| `--no-mux` | off | Genera solo i `.srt`, senza creare il video |
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-o`, `--out` | `<movie>.subs.mkv` | Output video. A `.mp4`/`.mov` extension uses the `mov_text` codec, anything else uses `srt` |
+| `--whisper` | `large-v3` | faster-whisper model (`medium` or `small` for less VRAM) |
+| `--nllb` | `facebook/nllb-200-distilled-1.3B` | Translation model (`...-distilled-600M` for less VRAM) |
+| `--no-mux` | off | Only write the `.srt` files, do not create the video |
 
-### Riprendere dopo un'interruzione
+### Resuming after an interruption
 
-La trascrizione è la parte più lunga. Se `film.ar.srt` esiste già lo script lo riusa; se esistono già `film.en.srt` o `film.it.srt` salta quella lingua. Per **rifare** una fase, cancella il relativo `.srt` e rilancia.
+Transcription is the slowest step. If `movie.ar.srt` already exists the script reuses it, and if `movie.en.srt` or `movie.it.srt` already exist that language is skipped. To **redo** a step, delete the corresponding `.srt` and run again.
 
-### Guardare il film
+### Watching the movie
 
-Apri `film.subs.mkv` con VLC (*Sottotitoli → Traccia sottotitoli*) o con qualunque player che supporti l'mkv. In alternativa lascia i `.srt` accanto al video: VLC li carica da solo se il nome inizia come quello del film.
+Open `movie.subs.mkv` in VLC (*Subtitle → Sub Track*) or any player that supports mkv. Alternatively, keep the `.srt` files next to the video: VLC loads them automatically when their name starts with the movie's name.
 
-## Qualità e limiti
+## Quality and limitations
 
-- **La traduzione è automatica e grezza.** NLLB è addestrato su molto testo scritto; il parlato informale, i modi di dire e gli scherzi del cinema egiziano spesso vengono tradotti alla lettera o sbagliati. Va bene per seguire la trama, non per un sottotitolaggio professionale.
-- **Gli errori si sommano**: se Whisper sbaglia una parola (frequente con il dialetto, i nomi propri e il rumore di fondo) la traduzione parte già sbagliata.
-- **La suddivisione è proporzionale**: il testo tradotto è diviso sui tempi dell'arabo in base alla lunghezza, quindi una riga può terminare a metà frase.
-- **Più lingue parlate** (arabo + inglese/francese) non sono gestite: Whisper è forzato su `ar`.
-- Testato su un film da ~104 minuti: non ci sono stime di tempo precise, dipendono molto dalla GPU.
+- **The translation is automatic and rough.** NLLB is trained mostly on written text; informal speech, idioms and jokes in Egyptian cinema are often translated literally or wrongly. It is good enough to follow the plot, not for professional subtitling.
+- **Errors add up.** If Whisper mishears a word (common with dialect, proper names and background noise), the translation starts from a wrong sentence.
+- **Splitting is proportional.** The translated text is divided over the Arabic timings by length, so a line may end mid-sentence.
+- **Mixed languages** (Arabic plus English or French) are not handled: Whisper is forced to `ar`.
+- Tested on a ~104 minute movie. There are no precise timing figures, as speed depends heavily on the GPU.
 
-## Problemi comuni
+## Troubleshooting
 
-| Errore | Causa | Soluzione |
-|--------|-------|-----------|
-| `Library cublas64_12.dll is not found` | Mancano le librerie CUDA 12 | `pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"` |
-| `No space left on device` o crash (`access violation`) durante il caricamento del modello | Disco pieno; su Windows il pagefile cresce molto | Libera almeno 15 GB su C: |
-| `CUDA error: out of memory` | VRAM occupata da un altro processo o modello troppo grande | Chiudi gli altri programmi che usano la GPU, oppure usa `--whisper medium --nllb ...-600M` |
-| Torch non si importa (`WinError 193` o `no attribute '__version__'`) | Installazione di torch corrotta (spesso per disco pieno) | Cancella la cartella `torch` in `site-packages` e reinstalla |
-| Testo arabo illeggibile in console | La console Windows non mostra UTF-8; i file `.srt` sono corretti | Aprili con un editor o con VLC |
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Library cublas64_12.dll is not found` | CUDA 12 libraries are missing | `pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"` |
+| `No space left on device`, or a crash (`access violation`) while loading a model | Disk full; on Windows the pagefile grows a lot | Free at least 15 GB on C: |
+| `CUDA error: out of memory` | VRAM used by another process, or the model is too large | Close other GPU programs, or use `--whisper medium --nllb ...-600M` |
+| torch fails to import (`WinError 193` or `no attribute '__version__'`) | Corrupted torch install (often caused by a full disk) | Delete the `torch` folder in `site-packages` and reinstall |
+| Arabic text looks garbled in the console | The Windows console does not display UTF-8; the `.srt` files themselves are correct | Open them in an editor or in VLC |
 
-## Test
+## Tests
 
 ```bash
 pytest -q
 ```
 
-Coprono formattazione dei timestamp, lettura/scrittura SRT, suddivisione in sottotitoli brevi, raggruppamento in frasi e distribuzione del testo tradotto. Non testano i modelli.
+They cover timestamp formatting, SRT reading and writing, splitting into short subtitles, grouping into sentences and distributing the translated text. They do not test the models.
 
-## Possibili miglioramenti
+## Possible improvements
 
-- Traduzione con un **LLM** (es. Claude via API) al posto di NLLB, passando le righe vicine come contesto: di solito rende meglio modi di dire e registro informale.
-- Modelli Whisper ottimizzati per l'arabo egiziano, se disponibili e verificati.
-- Suddivisione del testo tradotto che rispetti i confini di frase.
+- Translate with an **LLM** instead of NLLB, passing the neighbouring lines as context. Options include a local model through LM Studio, a free-tier API, or a paid one such as Claude. This usually handles idioms and informal speech better.
+- Whisper models tuned for Egyptian Arabic, if available and verified.
+- Splitting the translated text so that it respects sentence boundaries.
 
-## Note legali
+## Legal note
 
-Usa lo script solo su video di cui hai il diritto di uso personale. I sottotitoli prodotti sono opere derivate del film: non distribuirli senza i diritti.
+Use this script only on videos you have the right to use personally. The generated subtitles are derivative works of the movie: do not distribute them without the rights.
