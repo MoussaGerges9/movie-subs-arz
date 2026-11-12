@@ -85,7 +85,8 @@ python movie_subs.py movie.mkv --whisper medium --translator nllb --nllb faceboo
 | `--llm-url` | `http://localhost:1234/v1` | OpenAI-compatible server |
 | `--llm-model` | `local` | Model name on the server |
 | `--names` | empty | Character names, in Arabic and/or Latin letters. They help both transcription and translation |
-| `--title` | `an Egyptian Arabic feature film` | Film description given to the LLM as context |
+| `--title` | asked at start | Name of the film, given to the LLM as context. In an interactive terminal the script asks for it when the option is missing; otherwise a generic description is used |
+| `--lang` | asked at start | `en`, `it` or `both`. In an interactive terminal the script asks which translation you want (default both); without a terminal the default is both |
 | `--nllb` | `facebook/nllb-200-distilled-1.3B` | NLLB model for the fallback translator |
 | `--transcribe-only` | off | Stop after writing `movie.ar.srt` |
 | `--no-mux` | off | Only write the `.srt` files, do not create the video |

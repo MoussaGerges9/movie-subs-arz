@@ -234,7 +234,9 @@ def main() -> None:
     ap.add_argument("--llm-url", default="http://localhost:1234/v1", help="server OpenAI-compatibile (llama-server, LM Studio, Ollama)")
     ap.add_argument("--llm-model", default="local", help="nome del modello sul server")
     ap.add_argument("--names", default="", help='nomi dei personaggi, in arabo e/o latino (es. "نيسا، زيزي / Nisa, Zizi")')
-    ap.add_argument("--title", default="an Egyptian Arabic feature film", help="titolo/genere del film, dato come contesto all'LLM")
+    ap.add_argument("--title", help="nome del film, dato come contesto all'LLM (se manca e il terminale è interattivo lo chiede)")
+    ap.add_argument("--lang", choices=["en", "it", "both"],
+                    help="lingue da tradurre (se manca e il terminale è interattivo lo chiede; default both)")
     ap.add_argument("--transcribe-only", action="store_true",
                     help="solo trascrizione araba: libera la GPU prima di avviare il server LLM (con 6 GB non stanno insieme)")
     a = ap.parse_args()
@@ -244,6 +246,12 @@ def main() -> None:
     if a.translator == "llm" and not up and not a.transcribe_only:
         sys.exit(f"nessun server LLM su {a.llm_url}: avvialo oppure usa --translator nllb")
     use_llm = up
+    if not a.transcribe_only and sys.stdin.isatty():
+        if use_llm and a.title is None:
+            a.title = input("Nome del film (invio per saltare): ").strip() or None
+        if a.lang is None:
+            a.lang = {"1": "en", "2": "it"}.get(input("Traduzione: 1) inglese  2) italiano  3) entrambe [3]: ").strip(), "both")
+    langs = {c: v for c, v in LANGS.items() if a.lang in (None, "both", c)}  # senza scelta: entrambe
     print(f"traduttore: {'LLM ' + a.llm_url if use_llm else 'NLLB ' + a.nllb}", file=sys.stderr)
 
     import ctranslate2
@@ -265,11 +273,11 @@ def main() -> None:
     if use_llm:
         import translate_llm as tl
 
-        cfg = dict(url=a.llm_url, model=a.llm_model, block=8, ctx=3, title=a.title, names=a.names,
+        cfg = dict(url=a.llm_url, model=a.llm_model, block=8, ctx=3, title=f'the Egyptian Arabic film "{a.title}"' if a.title else "an Egyptian Arabic feature film", names=a.names,
                    schema=True, stats=tl.new_stats())
 
     srts = {"ara": ar_srt}
-    for code, (iso, nllb) in LANGS.items():
+    for code, (iso, nllb) in langs.items():
         p = Path(f"{stem}.{code}.srt")
         if not p.exists():  # già tradotta in un run precedente
             fn = (lambda t: tl.translate(cfg, t, LLM_LANG[code])) if use_llm else (lambda t: translate(t, nllb, a.nllb, device))
