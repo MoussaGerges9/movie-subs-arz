@@ -28,14 +28,17 @@ def test_group_sentences_and_split_text():
     assert split_text("a b c d", [10, 1, 1]) == ["a b", "c", "d"]  # abbastanza parole: nessuna riga vuota
 
 
-def test_split_lines_accepts_only_unaltered_words(monkeypatch):
+def test_split_lines_validates_cut_points(monkeypatch):
     import translate_llm as tl
 
     cfg = dict(url="", model="", schema=True)
-    reply = lambda *a, **k: '{"t": [{"id": 1, "t": "Sell"}, {"id": 2, "t": "them to me."}]}'
-    monkeypatch.setattr(tl, "chat", reply)
-    assert tl.split_lines(cfg, ["بيع", "ليهم"], "Sell them to me.", "English") == ["Sell", "them to me."]
-    assert tl.split_lines(cfg, ["بيع", "ليهم"], "Sell them to you.", "English") is None  # parole cambiate: ripiego
+    ar = ["بيع", "ليهم"]
+    monkeypatch.setattr(tl, "chat", lambda *a, **k: '{"cuts": [1]}')
+    assert tl.split_lines(cfg, ar, "Sell them to me.", "English") == ["Sell", "them to me."]
+    for bad in ('{"cuts": [0]}', '{"cuts": [4]}', '{"cuts": [1, 2]}', "non json"):  # pezzo vuoto, fuori range, conteggio, rumore
+        monkeypatch.setattr(tl, "chat", lambda *a, _b=bad, **k: _b)
+        assert tl.split_lines(cfg, ar, "Sell them to me.", "English") is None
+    assert tl.split_lines(cfg, ar * 2, "Sell them", "English") is None  # meno parole che righe: ripiego
 
 
 def test_chunk_words_splits_on_punct_gap_and_duration():

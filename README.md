@@ -17,7 +17,7 @@ Output: `movie.ar.srt`, `movie.en.srt`, `movie.it.srt` and `movie.subs.mkv` (the
 | 2. Short subtitles | `chunk_words` | Splits speech into lines of at most ~5 s / 70 characters, at pauses and sentence ends |
 | 3. Sentences | `group_sentences` | Regroups the short lines into whole sentences, so the translator sees complete thoughts |
 | 4. Translation | **Local LLM** (default, e.g. Gemma 4 E4B behind any OpenAI-compatible server) or [NLLB-200](https://huggingface.co/facebook/nllb-200-distilled-1.3B) (`arz_Arab`) as a fallback | Translates whole sentences, with the film title and character names as context |
-| 5. Re-alignment | LLM (`split_lines`), with `split_text` as fallback | Puts the translated sentence back onto the original timings. The LLM splits it by meaning; its answer is accepted only if it keeps exactly the same words and leaves no empty piece. Otherwise the text is split proportionally to the length of each Arabic line, preferring cuts at commas and full stops, with at least one word per line |
+| 5. Re-alignment | LLM (`split_lines`), with `split_text` as fallback | Puts the translated sentence back onto the original timings. The LLM only chooses where to cut (word numbers), so it cannot change the text and its answer is short and fast; cuts that are out of order or leave an empty piece are rejected. Then the text is split proportionally to the length of each Arabic line, preferring cuts at commas and full stops, with at least one word per line |
 | 6. Embedding | `ffmpeg` | Adds the `ara`, `eng` and `ita` tracks without re-encoding video or audio |
 
 ## Requirements
